@@ -30,6 +30,24 @@ const genuineWebSearchBody = `{"model":"claude-sonnet-4-6","max_tokens":1024,"me
 	`{"type":"web_search_tool_result","tool_use_id":"srvtoolu_01ABCDEF","content":[{"type":"web_search_result","url":"https://example.com","title":"Weather"}]},` +
 	`{"type":"text","text":"summary with citations"}]}]}`
 
+// A server tool can be stripped from one historical assistant record while its
+// ordinary tool_result is replayed from a later record. Leaving that wrapper
+// behind makes Moonshot/Kimi reject the request because the tool_call_id no
+// longer exists.
+const serverToolResultHistoryBody = `{"model":"kimi-k3","messages":[` +
+	`{"role":"user","content":"Inspect the image."},` +
+	`{"role":"assistant","content":[{"type":"server_tool_use","id":"call_vision","name":"analyze_image","input":{}}]},` +
+	`{"role":"assistant","content":[{"type":"text","text":"Image analysis completed."}]},` +
+	`{"role":"assistant","content":[{"type":"tool_result","tool_use_id":"call_vision","content":"The image contains a blue square."}]},` +
+	`{"role":"user","content":"Say OK."}]}`
+
+func TestFilterWebSearchHistoryBlocks_PreservesStrippedServerToolResultAsText(t *testing.T) {
+	out := FilterWebSearchHistoryBlocks([]byte(serverToolResultHistoryBody), "kimi-k3")
+	require.Equal(t, "text", gjson.GetBytes(out, "messages.3.content.0.type").String())
+	require.Contains(t, gjson.GetBytes(out, "messages.3.content.0.text").String(), "blue square")
+	require.False(t, gjson.GetBytes(out, "messages.3.content.0.tool_use_id").Exists())
+}
+
 func collectContentTypes(t *testing.T, body []byte) []string {
 	t.Helper()
 	var types []string
